@@ -1,12 +1,6 @@
 """
 EMA Voice Agent - Main Entry Point
-
-This is the LiveKit-based voice agent for EMA Production.
-It handles emergency maintenance calls for property management.
-
-Run with:
-    python src/agent.py dev     # Local development
-    python src/agent.py start   # Production
+LiveKit-based voice agent for EMA Production.
 """
 
 import asyncio
@@ -15,7 +9,6 @@ import json
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import structlog
@@ -57,11 +50,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_header("Content-type", "application/json")
             self.end_headers()
             has_creds, missing = check_credentials()
-            response = {
-                "status": "standby" if not has_creds else "ready",
-                "service": "ema-voice-agent",
-                "missing_credentials": missing,
-            }
+            response = {"status": "standby" if not has_creds else "ready", "service": "ema-voice-agent", "missing_credentials": missing}
             self.wfile.write(json.dumps(response).encode())
         else:
             self.send_response(404)
@@ -74,8 +63,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def run_standby_server(port=10000):
     print("=" * 60)
     print("EMA Voice Agent - STANDBY MODE")
-    print("=" * 60)
-    print("LiveKit credentials not configured.")
     print("Set: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET")
     print(f"Health check: http://0.0.0.0:{port}/health")
     print("=" * 60)
@@ -130,36 +117,52 @@ class EMAVoiceAgent:
         await self.http_client.aclose()
 
 
-def run_livekit_agent():
-    from livekit import agents
-    from livekit.agents import AutoSubscribe, JobContext, JobRequest, WorkerOptions, cli, llm
+# Module-level entrypoint (required for multiprocessing pickle)
+async def entrypoint(ctx):
+    from livekit.agents import AutoSubscribe, llm
     from livekit.plugins import deepgram, openai, silero
+    from livekit import agents
 
-    async def entrypoint(ctx):
-        ema = EMAVoiceAgent(ctx.room.name, ctx.room.metadata)
-        await ema.on_call_started({})
-        stt = deepgram.STT(model="nova-2", language="en-US")
-        llm_inst = openai.LLM(model="gpt-4o-mini")
-        tts = openai.TTS(voice="nova")
-        assistant = agents.VoicePipelineAgent(vad=silero.VAD.load(), stt=stt, llm=llm_inst, tts=tts, chat_ctx=llm.ChatContext().append(role="system", text=ema.get_system_prompt()))
+    ema = EMAVoiceAgent(ctx.room.name, ctx.room.metadata)
+    await ema.on_call_started({})
+    
+    stt = deepgram.STT(model="nova-2", language="en-US")
+    llm_inst = openai.LLM(model="gpt-4o-mini")
+    tts = openai.TTS(voice="nova")
+    
+    assistant = agents.VoicePipelineAgent(
+        vad=silero.VAD.load(), 
+        stt=stt, 
+        llm=llm_inst, 
+        tts=tts,
+        chat_ctx=llm.ChatContext().append(role="system", text=ema.get_system_prompt())
+    )
 
-        @assistant.on("user_speech_committed")
-        def on_user(msg): asyncio.create_task(ema.on_user_speech(msg.content))
+    @assistant.on("user_speech_committed")
+    def on_user(msg):
+        asyncio.create_task(ema.on_user_speech(msg.content))
 
-        @assistant.on("agent_speech_committed")
-        def on_agent(msg): asyncio.create_task(ema.on_agent_speech(msg.content))
+    @assistant.on("agent_speech_committed")
+    def on_agent(msg):
+        asyncio.create_task(ema.on_agent_speech(msg.content))
 
-        await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-        participant = await ctx.wait_for_participant()
-        assistant.start(ctx.room, participant)
-        await assistant.say("Hello, this is EMA. How can I help?", allow_interruptions=True)
-        await assistant.wait_for_close()
-        await ema.on_call_ended()
+    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    participant = await ctx.wait_for_participant()
+    assistant.start(ctx.room, participant)
+    await assistant.say("Hello, this is EMA. How can I help?", allow_interruptions=True)
+    await assistant.wait_for_close()
+    await ema.on_call_ended()
 
-    async def request_handler(req):
-        await req.accept(entrypoint)
 
+# Module-level request handler (required for multiprocessing pickle)
+async def request_handler(req):
+    await req.accept(entrypoint)
+
+
+def run_livekit_agent():
+    from livekit.agents import WorkerOptions, cli
     print("EMA Voice Agent - ACTIVE MODE")
+    print(f"LiveKit URL: {LIVEKIT_URL}")
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, request_fnc=request_handler))
 
 
