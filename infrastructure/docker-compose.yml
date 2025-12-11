@@ -1,0 +1,25 @@
+# Docker Compose for local development
+# EMA Production Voice Agent
+
+version: "3.8"
+
+services:
+  voice-agent:
+    build:
+      context: ../apps/voice-agent
+      dockerfile: Dockerfile
+    container_name: ema-voice-agent
+    restart: unless-stopped
+    env_file:
+      - ../apps/voice-agent/.env
+    environment:
+      - LOG_LEVEL=DEBUG
+    volumes:
+      # Mount prompts for live editing
+      - ../apps/voice-agent/prompts:/app/prompts:ro
+    networks:
+      - ema-network
+
+networks:
+  ema-network:
+    driver: bridge

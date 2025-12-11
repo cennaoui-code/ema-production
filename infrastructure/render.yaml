@@ -1,0 +1,35 @@
+# Render Blueprint for EMA Production
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Voice Agent - LiveKit-based voice AI
+  - type: worker
+    name: ema-voice-agent
+    runtime: docker
+    dockerfilePath: ./apps/voice-agent/Dockerfile
+    dockerContext: ./apps/voice-agent
+    region: oregon
+    plan: starter
+    autoDeploy: true
+    envVars:
+      # LiveKit Configuration
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      # OpenAI (LLM + TTS)
+      - key: OPENAI_API_KEY
+        sync: false
+      # Deepgram (STT)
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      # EMA API Integration
+      - key: EMA_API_URL
+        value: https://api.samantha.cx
+      - key: EMA_WEBHOOK_SECRET
+        sync: false
+      # Logging
+      - key: LOG_LEVEL
+        value: INFO
