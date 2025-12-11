@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY apps/voice-agent/src/ ./src/
 COPY apps/voice-agent/prompts/ ./prompts/
+COPY apps/voice-agent/scripts/ ./scripts/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
