@@ -1,0 +1,15 @@
+{
+  "defaultVoice": "rimelabs:mist2:abbie",
+  "locales": [
+    "en-US"
+  ],
+  "deepgramASR": {
+    "punctuationWaitMS": 300,
+    "partialWaitMS": 1500,
+    "silenceWaitMS": 1500,
+    "interruptionWaitWords": 1,
+    "audioCue": null,
+    "backgroundAudio": null,
+    "locale": "en"
+  }
+}
