@@ -90,7 +90,12 @@ class EMAVoiceAgent:
         return prompts
 
     def get_system_prompt(self):
-        return self.prompts.get("welcome", "You are EMA.")
+        # Use unified EMA prompt, fallback to welcome-agent, then generic
+        return (
+            self.prompts.get("ema-system-prompt") or
+            self.prompts.get("welcome-agent") or
+            "You are EMA, Emergency Maintenance Assistant."
+        )
 
     async def send_webhook(self, event_type, data):
         payload = {"event_type": event_type, "session_id": self.session_id, "timestamp": datetime.utcnow().isoformat(), "data": data}
@@ -149,7 +154,7 @@ async def entrypoint(ctx):
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     participant = await ctx.wait_for_participant()
     assistant.start(ctx.room, participant)
-    await assistant.say("Hello, this is EMA. How can I help?", allow_interruptions=True)
+    await assistant.say("Hi, Ema here with emergency maintenance. If anyone is in danger, hang up and call 9-1-1. Otherwise, what is happening?", allow_interruptions=True)
     await assistant.wait_for_close()
     await ema.on_call_ended()
 
