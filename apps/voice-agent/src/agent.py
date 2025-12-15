@@ -10,11 +10,12 @@ import uuid
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import httpx
 import structlog
 from dotenv import load_dotenv
+from sim_orchestrator import SimAiOrchestrator, OrchestratorResponse
 
 load_dotenv()
 
@@ -80,6 +81,8 @@ class EMAVoiceAgent:
         self.turn_index = 0
         self.prompts = self._load_prompts()
         self.http_client = httpx.AsyncClient(timeout=10.0)
+        self.orchestrator = SimAiOrchestrator(session_id)
+        self.last_orchestrator_response: Optional[OrchestratorResponse] = None
 
     def _load_prompts(self):
         prompts = {}
