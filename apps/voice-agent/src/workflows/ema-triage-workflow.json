@@ -1,0 +1,138 @@
+{
+  "name": "EMA Triage Workflow",
+  "description": "Property maintenance triage workflow for voice agent. Routes conversations based on urgency and issue type.",
+  "version": "1.0.0",
+  "trigger": {
+    "type": "api",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "user_text": {
+          "type": "string",
+          "description": "What the tenant said"
+        },
+        "state": {
+          "type": "object",
+          "description": "Current conversation state",
+          "properties": {
+            "session_id": { "type": "string" },
+            "stage": { "type": "string" },
+            "issue_type": { "type": "string" },
+            "urgency": { "type": "string" },
+            "is_emergency": { "type": "boolean" },
+            "tenant_name": { "type": "string" },
+            "property_address": { "type": "string" }
+          }
+        },
+        "conversation_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string" },
+              "text": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["user_text", "state"]
+    }
+  },
+  "nodes": [
+    {
+      "id": "emergency_detector",
+      "type": "agent",
+      "name": "Emergency Detector",
+      "description": "Detects if the issue is an emergency requiring immediate escalation",
+      "config": {
+        "model": "gpt-4o-mini",
+        "system_prompt": "You are an emergency detector for property maintenance calls. Analyze the user's message and determine if it's an emergency.\n\nEMERGENCY CONDITIONS:\n- Fire or smoke\n- Gas leak or smell of gas\n- Carbon monoxide alarm\n- Major flooding or burst pipe\n- No heat in freezing weather (<40°F)\n- Electrical sparks or burning smell\n- Break-in or security threat\n- Sewage backup\n\nRespond with JSON:\n{\n  \"is_emergency\": boolean,\n  \"emergency_type\": string | null,\n  \"confidence\": number (0-1),\n  \"safety_concern\": boolean\n}"
+      }
+    },
+    {
+      "id": "issue_classifier",
+      "type": "agent",
+      "name": "Issue Classifier",
+      "description": "Classifies the maintenance issue type",
+      "config": {
+        "model": "gpt-4o-mini",
+        "system_prompt": "You are a maintenance issue classifier. Analyze the user's description and classify the issue type.\n\nISSUE TYPES:\n- plumbing: pipes, drains, toilets, faucets, water heater\n- electrical: outlets, lights, circuits, breakers\n- hvac: heating, cooling, thermostat, furnace, AC\n- appliance: refrigerator, stove, washer, dryer, dishwasher\n- locksmith: locks, keys, doors\n- pest: bugs, rodents, insects\n- structural: walls, floors, ceilings, windows, doors\n- general: other maintenance issues\n\nRespond with JSON:\n{\n  \"issue_type\": string,\n  \"issue_subtype\": string | null,\n  \"confidence\": number (0-1),\n  \"needs_clarification\": boolean\n}"
+      }
+    },
+    {
+      "id": "urgency_assessor",
+      "type": "agent",
+      "name": "Urgency Assessor",
+      "description": "Assesses the urgency level of the issue",
+      "config": {
+        "model": "gpt-4o-mini",
+        "system_prompt": "You are an urgency assessor for property maintenance. Determine how urgent the issue is based on:\n\nURGENCY LEVELS:\n- emergency: Immediate safety risk, property damage ongoing, no heat in freezing temps\n- urgent: Affects habitability but not immediate danger (no hot water, AC broken in summer)\n- routine: Can wait for scheduled service (cosmetic issues, minor repairs)\n\nConsider:\n- Is there ongoing damage?\n- Does it affect habitability?\n- Are there safety concerns?\n- Time of day/weather conditions\n\nRespond with JSON:\n{\n  \"urgency\": \"emergency\" | \"urgent\" | \"routine\",\n  \"reasoning\": string,\n  \"affects_habitability\": boolean,\n  \"time_sensitive\": boolean\n}"
+      }
+    },
+    {
+      "id": "router",
+      "type": "function",
+      "name": "Conversation Router",
+      "description": "Routes to next stage based on collected information",
+      "config": {
+        "code": "function route(input) {\n  const { emergency, issue, urgency, state } = input;\n  \n  // Emergency escalation\n  if (emergency.is_emergency) {\n    return {\n      next_stage: 'escalation',\n      prompt: 'triage-emergency-escalation-agent',\n      tools: ['escalate'],\n      escalate: true,\n      escalation_reason: `Emergency: ${emergency.emergency_type}`,\n      state_updates: {\n        is_emergency: true,\n        emergency_type: emergency.emergency_type,\n        urgency: 'emergency'\n      }\n    };\n  }\n  \n  // Need more issue details\n  if (!issue.issue_type || issue.needs_clarification) {\n    return {\n      next_stage: 'triage',\n      prompt: 'intake-router-agent',\n      tools: [],\n      state_updates: {}\n    };\n  }\n  \n  // Need location\n  if (!state.location) {\n    return {\n      next_stage: 'location',\n      prompt: 'location-detail-input-agent',\n      tools: [],\n      state_updates: { issue_type: issue.issue_type }\n    };\n  }\n  \n  // Ready for dispatch\n  return {\n    next_stage: 'dispatch',\n    prompt: 'dispatch-router-agent',\n    tools: ['create_ticket', 'find_vendor'],\n    state_updates: {\n      issue_type: issue.issue_type,\n      urgency: urgency.urgency\n    }\n  };\n}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "trigger",
+      "to": "emergency_detector"
+    },
+    {
+      "from": "trigger",
+      "to": "issue_classifier"
+    },
+    {
+      "from": "emergency_detector",
+      "to": "router"
+    },
+    {
+      "from": "issue_classifier",
+      "to": "urgency_assessor"
+    },
+    {
+      "from": "urgency_assessor",
+      "to": "router"
+    }
+  ],
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "next_stage": {
+        "type": "string",
+        "enum": ["welcome", "triage", "emergency_check", "issue_details", "location", "urgency", "dispatch", "escalation", "closing"]
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Name of prompt to use for response generation"
+      },
+      "tools": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Tools to call (create_ticket, find_vendor, escalate)"
+      },
+      "state_updates": {
+        "type": "object",
+        "description": "State fields to update"
+      },
+      "escalate": {
+        "type": "boolean",
+        "default": false
+      },
+      "escalation_reason": {
+        "type": "string"
+      },
+      "hint": {
+        "type": "string",
+        "description": "Optional hint for LLM response"
+      }
+    },
+    "required": ["next_stage", "prompt", "tools", "state_updates"]
+  }
+}
